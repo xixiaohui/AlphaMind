@@ -1,401 +1,456 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
+import Header from '../components/Header';
+import Footer from '../components/Footer';
+import Link from 'next/link';
+
+// ============== 类型定义 ==============
 
 interface Message {
+  id: string;
   role: 'user' | 'assistant';
   content: string;
   timestamp: number;
   isStreaming?: boolean;
 }
 
-interface ChatSession {
+interface Conversation {
   id: string;
-  date: string;
-  dateLabel: string;
-  firstMessage: string;
-  messageCount: number;
+  title: string;
   messages: Message[];
+  createdAt: number;
+  updatedAt: number;
 }
 
-const STORAGE_KEY = 'alphamind-chat-messages';
+// 主题分类
+type TopicType = '个股分析' | '财报解读' | '行业研究' | '市场热点' | '技术分析' | '宏观策略' | '其他';
 
-export default function ChatHistory() {
-  const [allMessages, setAllMessages] = useState<Message[]>([]);
-  const [selectedSession, setSelectedSession] = useState<ChatSession | null>(null);
-  const [viewMode, setViewMode] = useState<'list' | 'detail'>('list');
-  const [groupBy, setGroupBy] = useState<'date' | 'topic'>('date');
+interface GroupedHistory {
+  date: string;
+  dateKey: string;
+  conversations: Conversation[];
+}
+
+// ============== 常量 ==============
+
+const STORAGE_KEY = 'alphamind_conversations';
+
+// 主题关键词映射
+const topicKeywords: Record<TopicType, string[]> = {
+  '个股分析': ['贵州茅台', '腾讯', '阿里巴巴', '苹果', '特斯拉', '英伟达', '分析', '投资价值', '估值'],
+  '财报解读': ['财报', '营收', '利润', '净利润', '每股收益', 'EPS', '季报', '年报'],
+  '行业研究': ['行业', '产业链', '赛道', '对比', '竞争格局', '市场份额'],
+  '市场热点': ['市场', '热点', '板块', '大盘', 'A股', '美股', '港股', '机会'],
+  '技术分析': ['技术', 'K线', '均线', 'MACD', 'RSI', '支撑', '阻力', '走势'],
+  '宏观策略': ['宏观', '经济', '政策', '利率', '通胀', '美联储', '央行', 'GDP'],
+  '其他': [],
+};
+
+// ============== 工具函数 ==============
+
+function classifyTopic(conversation: Conversation): TopicType {
+  const content = conversation.title + ' ' + 
+    (conversation.messages[0]?.content || '');
+  
+  for (const [topic, keywords] of Object.entries(topicKeywords)) {
+    if (topic === '其他') continue;
+    if (keywords.some(keyword => content.includes(keyword))) {
+      return topic as TopicType;
+    }
+  }
+  return '其他';
+}
+
+function getTopicColor(topic: TopicType): string {
+  const colors: Record<TopicType, string> = {
+    '个股分析': 'bg-blue-500/10 text-blue-400',
+    '财报解读': 'bg-green-500/10 text-green-400',
+    '行业研究': 'bg-purple-500/10 text-purple-400',
+    '市场热点': 'bg-orange-500/10 text-orange-400',
+    '技术分析': 'bg-pink-500/10 text-pink-400',
+    '宏观策略': 'bg-cyan-500/10 text-cyan-400',
+    '其他': 'bg-white/10 text-white/60',
+  };
+  return colors[topic];
+}
+
+function formatFullDate(timestamp: number): string {
+  const date = new Date(timestamp);
+  const now = new Date();
+  const diffDays = Math.floor((now.getTime() - timestamp) / (1000 * 60 * 60 * 24));
+  
+  if (diffDays === 0) return '今天';
+  if (diffDays === 1) return '昨天';
+  if (diffDays < 7) return `${diffDays} 天前`;
+  if (diffDays < 30) return `${Math.floor(diffDays / 7)} 周前`;
+  
+  return date.toLocaleDateString('zh-CN', { 
+    year: 'numeric', 
+    month: 'short', 
+    day: 'numeric' 
+  });
+}
+
+function getDateGroupKey(timestamp: number): string {
+  const date = new Date(timestamp);
+  const now = new Date();
+  const diffDays = Math.floor((now.getTime() - timestamp) / (1000 * 60 * 60 * 24));
+  
+  if (diffDays === 0) return 'today';
+  if (diffDays === 1) return 'yesterday';
+  if (diffDays < 7) return 'week';
+  if (diffDays < 30) return 'month';
+  return 'older';
+}
+
+// ============== 组件 ==============
+
+function TopicBadge({ topic }: { topic: TopicType }) {
+  return (
+    <span className={`text-xs px-2 py-0.5 rounded ${getTopicColor(topic)}`}>
+      {topic}
+    </span>
+  );
+}
+
+function ConversationCard({ 
+  conversation, 
+  onDelete 
+}: { 
+  conversation: Conversation; 
+  onDelete: (id: string) => void;
+}) {
+  const topic = classifyTopic(conversation);
+  const messageCount = conversation.messages.length;
+  const firstUserMessage = conversation.messages.find(m => m.role === 'user');
+
+  return (
+    <div className="group relative">
+      <Link
+        href={`/ai?conversation=${conversation.id}`}
+        className="block bg-white/5 border border-white/10 rounded-lg p-4 hover:bg-white/10 hover:border-white/20 transition-all"
+      >
+        <div className="flex items-start justify-between gap-3 mb-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            <TopicBadge topic={topic} />
+            <span className="text-xs text-white/30">
+              {messageCount} 条消息
+            </span>
+          </div>
+          <span className="text-xs text-white/30 whitespace-nowrap">
+            {formatFullDate(conversation.updatedAt)}
+          </span>
+        </div>
+        
+        <h3 className="font-medium text-white/90 mb-1 line-clamp-1">
+          {conversation.title}
+        </h3>
+        
+        {firstUserMessage && (
+          <p className="text-sm text-white/50 line-clamp-2">
+            {firstUserMessage.content}
+          </p>
+        )}
+      </Link>
+      
+      <button
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          onDelete(conversation.id);
+        }}
+        className="absolute top-3 right-3 p-1.5 rounded-md bg-white/5 opacity-0 group-hover:opacity-100 hover:bg-red-500/20 hover:text-red-400 transition-all"
+        title="删除"
+      >
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+        </svg>
+      </button>
+    </div>
+  );
+}
+
+function DateSection({ 
+  group, 
+  onDelete,
+  isExpanded 
+}: { 
+  group: GroupedHistory; 
+  onDelete: (id: string) => void;
+  isExpanded: boolean;
+}) {
+  return (
+    <div className="mb-8">
+      <div className="flex items-center gap-3 mb-4">
+        <h2 className="text-lg font-semibold text-white/80">{group.date}</h2>
+        <div className="flex-1 h-px bg-white/10" />
+        <span className="text-xs text-white/40">{group.conversations.length} 条对话</span>
+      </div>
+      
+      {isExpanded && (
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {group.conversations.map((conv) => (
+            <ConversationCard
+              key={conv.id}
+              conversation={conv}
+              onDelete={onDelete}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TopicFilter({ 
+  selectedTopic, 
+  onSelect,
+  counts 
+}: { 
+  selectedTopic: TopicType | '全部';
+  onSelect: (topic: TopicType | '全部') => void;
+  counts: Record<string, number>;
+}) {
+  const topics: (TopicType | '全部')[] = ['全部', '个股分析', '财报解读', '行业研究', '市场热点', '技术分析', '宏观策略', '其他'];
+  
+  return (
+    <div className="flex flex-wrap gap-2">
+      {topics.map((topic) => (
+        <button
+          key={topic}
+          onClick={() => onSelect(topic)}
+          className={`px-3 py-1.5 rounded-full text-sm transition-all ${
+            selectedTopic === topic
+              ? 'bg-white text-black font-medium'
+              : 'bg-white/5 text-white/60 hover:bg-white/10 hover:text-white/80'
+          }`}
+        >
+          {topic}
+          {counts[topic] !== undefined && (
+            <span className="ml-1.5 text-xs opacity-60">({counts[topic]})</span>
+          )}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// ============== 主页面 ==============
+
+export default function HistoryPage() {
   const [isLoaded, setIsLoaded] = useState(false);
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedTopic, setSelectedTopic] = useState<TopicType | '全部'>('全部');
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set(['today', 'yesterday', 'week']));
 
   useEffect(() => {
+    // 从 localStorage 加载对话
     try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) {
-        setAllMessages(JSON.parse(saved));
+      const data = localStorage.getItem(STORAGE_KEY);
+      if (data) {
+        const parsed = JSON.parse(data);
+        setConversations(parsed.sort((a: Conversation, b: Conversation) => b.updatedAt - a.updatedAt));
       }
     } catch (e) {
-      console.error('读取聊天记录失败:', e);
+      console.error('Failed to load conversations:', e);
     }
     setIsLoaded(true);
   }, []);
 
-  const sessions = useMemo(() => {
-    if (allMessages.length === 0) return [];
+  // 过滤和分组
+  const filteredAndGrouped = useMemo(() => {
+    let filtered = conversations;
 
-    const result: ChatSession[] = [];
-    let currentSession: Message[] = [];
-    let lastUserTime = 0;
-
-    allMessages.forEach((msg) => {
-      if (msg.role === 'user') {
-        if (lastUserTime > 0 && msg.timestamp - lastUserTime > 5 * 60 * 1000) {
-          if (currentSession.length > 0) {
-            const firstUserMsg = currentSession.find(m => m.role === 'user');
-            result.push({
-              id: `session-${result.length}`,
-              date: new Date(currentSession[0].timestamp).toISOString().split('T')[0],
-              dateLabel: formatDateLabel(currentSession[0].timestamp),
-              firstMessage: firstUserMsg?.content.slice(0, 50) || '',
-              messageCount: currentSession.length,
-              messages: currentSession
-            });
-          }
-          currentSession = [];
-        }
-        lastUserTime = msg.timestamp;
-      }
-      currentSession.push(msg);
-    });
-
-    if (currentSession.length > 0) {
-      const firstUserMsg = currentSession.find(m => m.role === 'user');
-      result.push({
-        id: `session-${result.length}`,
-        date: new Date(currentSession[0].timestamp).toISOString().split('T')[0],
-        dateLabel: formatDateLabel(currentSession[0].timestamp),
-        firstMessage: firstUserMsg?.content.slice(0, 50) || '',
-        messageCount: currentSession.length,
-        messages: currentSession
-      });
+    // 按主题过滤
+    if (selectedTopic !== '全部') {
+      filtered = filtered.filter(conv => classifyTopic(conv) === selectedTopic);
     }
 
-    return result.reverse();
-  }, [allMessages]);
+    // 按搜索过滤
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      filtered = filtered.filter(conv => 
+        conv.title.toLowerCase().includes(query) ||
+        conv.messages.some(m => m.content.toLowerCase().includes(query))
+      );
+    }
 
-  const groupedByDate = useMemo(() => {
-    const groups: Record<string, ChatSession[]> = {};
-    sessions.forEach(session => {
-      if (!groups[session.date]) {
-        groups[session.date] = [];
-      }
-      groups[session.date].push(session);
+    // 按日期分组
+    const groups: Record<string, GroupedHistory> = {
+      today: { date: '今天', dateKey: 'today', conversations: [] },
+      yesterday: { date: '昨天', dateKey: 'yesterday', conversations: [] },
+      week: { date: '本周', dateKey: 'week', conversations: [] },
+      month: { date: '本月', dateKey: 'month', conversations: [] },
+      older: { date: '更早', dateKey: 'older', conversations: [] },
+    };
+
+    filtered.forEach(conv => {
+      const groupKey = getDateGroupKey(conv.updatedAt);
+      groups[groupKey]?.conversations.push(conv);
     });
-    return groups;
-  }, [sessions]);
 
-  const groupedByTopic = useMemo(() => {
-    const topics: Record<string, ChatSession[]> = {};
-    sessions.forEach(session => {
-      const topic = session.firstMessage || '其他';
-      if (!topics[topic]) {
-        topics[topic] = [];
-      }
-      topics[topic].push(session);
-    });
-    return topics;
-  }, [sessions]);
+    // 返回非空组
+    return Object.values(groups).filter(g => g.conversations.length > 0);
+  }, [conversations, searchQuery, selectedTopic]);
 
-  function formatDateLabel(timestamp: number): string {
-    const now = new Date();
-    const date = new Date(timestamp);
-    const today = now.toDateString();
-    const yesterday = new Date(now.getTime() - 86400000).toDateString();
+  // 主题统计
+  const topicCounts = useMemo(() => {
+    const counts: Record<string, number> = { '全部': conversations.length };
+    const topics: TopicType[] = ['个股分析', '财报解读', '行业研究', '市场热点', '技术分析', '宏观策略', '其他'];
     
-    if (date.toDateString() === today) return '今天';
-    if (date.toDateString() === yesterday) return '昨天';
-    
-    const diff = now.getTime() - timestamp;
-    const days = Math.floor(diff / 86400000);
-    if (days < 7) return `${days}天前`;
-    
-    return date.toLocaleDateString('zh-CN', { month: 'long', day: 'numeric' });
-  }
-
-  function formatTime(timestamp: number): string {
-    return new Date(timestamp).toLocaleTimeString('zh-CN', {
-      hour: '2-digit',
-      minute: '2-digit'
+    topics.forEach(topic => {
+      counts[topic] = conversations.filter(conv => classifyTopic(conv) === topic).length;
     });
-  }
+    
+    return counts;
+  }, [conversations]);
 
-  function formatFullDate(timestamp: number): string {
-    return new Date(timestamp).toLocaleDateString('zh-CN', {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
-  }
+  // 删除对话
+  const handleDelete = (id: string) => {
+    if (!confirm('确定要删除这条对话记录吗？')) return;
+    
+    const updated = conversations.filter(c => c.id !== id);
+    setConversations(updated);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+  };
 
-  const goBack = () => {
-    setSelectedSession(null);
-    setViewMode('list');
+  // 切换日期组展开/收起
+  const toggleGroup = (groupKey: string) => {
+    const newExpanded = new Set(expandedGroups);
+    if (newExpanded.has(groupKey)) {
+      newExpanded.delete(groupKey);
+    } else {
+      newExpanded.add(groupKey);
+    }
+    setExpandedGroups(newExpanded);
   };
 
   if (!isLoaded) {
     return (
       <div className="min-h-screen bg-black flex items-center justify-center">
-        <div className="animate-spin w-8 h-8 border border-white/20 border-t-white rounded-full"></div>
+        <div className="w-10 h-10 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
       </div>
     );
   }
 
-  if (allMessages.length === 0) {
-    return (
-      <div className="min-h-screen bg-black flex items-center justify-center">
-        <div className="text-center">
-          <p className="text-xs uppercase tracking-widest opacity-50 mb-4" style={{ letterSpacing: '0.96px' }}>
-            历史记录
-          </p>
-          <p className="text-3xl font-bold uppercase tracking-widest mb-4" style={{ letterSpacing: '1.6px' }}>
-            暂无聊天记录
-          </p>
-          <p className="text-lg opacity-50 mb-8">开始与AI对话后，这里将显示您的聊天历史</p>
-          <a
-            href="/ai"
-            className="inline-block px-8 py-4 border border-white text-white text-sm font-bold uppercase rounded-full hover:bg-white hover:text-black transition-colors"
-            style={{ letterSpacing: '1.17px' }}
-          >
-            开始聊天
-          </a>
-        </div>
-      </div>
-    );
-  }
-
-  if (viewMode === 'detail' && selectedSession) {
-    return (
-      <div className="min-h-screen bg-black text-white">
-        <header className="fixed top-0 left-0 right-0 z-50 px-8 py-6 bg-black/80 backdrop-blur-md border-b border-white/10">
-          <div className="max-w-4xl mx-auto flex items-center gap-6">
-            <button
-              onClick={goBack}
-              className="text-sm font-bold uppercase tracking-widest opacity-80 hover:opacity-100 transition-opacity"
-              style={{ letterSpacing: '1.17px' }}
-            >
-              ← 返回
-            </button>
-            <div className="flex-1 min-w-0">
-              <h1 className="text-sm font-bold uppercase tracking-widest truncate opacity-80" style={{ letterSpacing: '1.17px' }}>
-                {selectedSession.firstMessage}
-              </h1>
-              <p className="text-xs opacity-50 mt-1">{formatFullDate(selectedSession.messages[0].timestamp)}</p>
-            </div>
-            <span className="px-4 py-2 text-xs font-bold uppercase border border-white/20 rounded-full" style={{ letterSpacing: '1.17px' }}>
-              {selectedSession.messageCount} 条消息
-            </span>
-          </div>
-        </header>
-
-        <main className="pt-24 pb-12 px-8">
-          <div className="max-w-4xl mx-auto space-y-8">
-            {selectedSession.messages.map((msg, idx) => (
-              <div
-                key={idx}
-                className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
-              >
-                <div className={`flex gap-6 max-w-[80%] ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}>
-                  <div className={`flex-shrink-0 w-12 h-12 rounded-full flex items-center justify-center ${
-                    msg.role === 'user'
-                      ? 'bg-white/10 border border-white/20'
-                      : 'bg-white/5'
-                  }`}>
-                    {msg.role === 'user' ? (
-                      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                      </svg>
-                    ) : (
-                      <span className="text-xs font-bold uppercase">AI</span>
-                    )}
-                  </div>
-                  <div className="flex flex-col gap-2">
-                    <div
-                      className={`px-6 py-5 rounded-2xl ${
-                        msg.role === 'user'
-                          ? 'bg-white text-black'
-                          : 'bg-white/5 border border-white/10'
-                      }`}
-                    >
-                      {msg.role === 'user' ? (
-                        <p className="whitespace-pre-wrap leading-relaxed">{msg.content}</p>
-                      ) : (
-                        <div className="prose prose-invert max-w-none prose-p:leading-relaxed">
-                          <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                            {msg.content}
-                          </ReactMarkdown>
-                        </div>
-                      )}
-                    </div>
-                    <span className={`text-xs text-zinc-500 px-1 ${msg.role === 'user' ? 'text-right' : ''}`}>
-                      {formatTime(msg.timestamp)}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </main>
-      </div>
-    );
-  }
+  const totalCount = filteredAndGrouped.reduce((sum, g) => sum + g.conversations.length, 0);
 
   return (
-    <div className="min-h-screen bg-black text-white">
-      <header className="fixed top-0 left-0 right-0 z-50 px-8 py-6 bg-black/80 backdrop-blur-md border-b border-white/10">
+    <div className="min-h-screen bg-black text-white font-sans antialiased">
+      <Header />
+
+      {/* Hero */}
+      <section className="pt-24 pb-8 px-4 border-b border-white/10">
         <div className="max-w-4xl mx-auto">
           <div className="flex items-center justify-between mb-6">
-            <div className="flex items-center gap-4">
-              <a href="/" className="text-sm font-bold uppercase tracking-widest opacity-80 hover:opacity-100 transition-opacity" style={{ letterSpacing: '1.17px' }}>
-                ← 返回首页
-              </a>
-              <div className="w-px h-6 bg-white/20"></div>
-              <div>
-                <h1 className="text-lg font-bold uppercase tracking-widest" style={{ letterSpacing: '1.6px' }}>
-                  聊天记录
-                </h1>
-                <p className="text-xs opacity-50 mt-1">{sessions.length} 个会话</p>
-              </div>
-            </div>
-            <div className="flex gap-2 border border-white/20 rounded-full p-1">
-              <button
-                onClick={() => setGroupBy('date')}
-                className={`px-4 py-2 text-xs font-bold uppercase rounded-full transition-all ${
-                  groupBy === 'date'
-                    ? 'bg-white text-black'
-                    : 'opacity-60 hover:opacity-100'
-                }`}
-                style={{ letterSpacing: '1.17px' }}
-              >
-                按日期
-              </button>
-              <button
-                onClick={() => setGroupBy('topic')}
-                className={`px-4 py-2 text-xs font-bold uppercase rounded-full transition-all ${
-                  groupBy === 'topic'
-                    ? 'bg-white text-black'
-                    : 'opacity-60 hover:opacity-100'
-                }`}
-                style={{ letterSpacing: '1.17px' }}
-              >
-                按主题
-              </button>
-            </div>
+            <h1 className="text-2xl md:text-3xl font-bold tracking-wider">历史记录</h1>
+            <Link
+              href="/ai"
+              className="inline-flex items-center gap-2 px-4 py-2 bg-white text-black font-medium text-sm rounded-full hover:bg-white/90 transition-colors"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+              </svg>
+              新对话
+            </Link>
           </div>
-        </div>
-      </header>
+          
+          {/* Search */}
+          <div className="relative mb-4">
+            <input
+              type="text"
+              placeholder="搜索对话内容..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full px-4 py-3 pl-11 bg-white/5 border border-white/10 rounded-lg text-white placeholder-white/40 focus:outline-none focus:border-blue-500 transition-colors text-sm"
+            />
+            <svg 
+              className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-white/30" 
+              fill="none" 
+              stroke="currentColor" 
+              viewBox="0 0 24 24"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+          </div>
 
-      <main className="pt-32 pb-12 px-8">
-        <div className="max-w-4xl mx-auto space-y-12">
-          {groupBy === 'date' ? (
-            Object.entries(groupedByDate).map(([date, dateSessions]) => (
-              <div key={date}>
-                <h2 className="text-xs uppercase tracking-widest opacity-50 mb-6 flex items-center gap-2" style={{ letterSpacing: '0.96px' }}>
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                  </svg>
-                  {dateSessions[0]?.dateLabel}
-                </h2>
-                <div className="space-y-3">
-                  {dateSessions.map((session) => (
-                    <button
-                      key={session.id}
-                      onClick={() => {
-                        setSelectedSession(session);
-                        setViewMode('detail');
-                      }}
-                      className="w-full text-left p-6 border border-white/10 rounded-2xl hover:bg-white/5 hover:border-white/20 transition-all group"
-                    >
-                      <div className="flex items-start gap-4">
-                        <div className="flex-1 min-w-0">
-                          <p className="text-lg font-medium mb-2 group-hover:opacity-80 transition-opacity line-clamp-2">
-                            {session.firstMessage}
-                          </p>
-                          <div className="flex items-center gap-6 text-sm opacity-50">
-                            <span className="flex items-center gap-2">
-                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-                              </svg>
-                              {session.messageCount} 条消息
-                            </span>
-                            <span className="flex items-center gap-2">
-                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                              </svg>
-                              {formatTime(session.messages[session.messages.length - 1].timestamp)}
-                            </span>
-                          </div>
-                        </div>
-                        <svg className="w-5 h-5 opacity-30 group-hover:opacity-80 transition-opacity flex-shrink-0 mt-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5l7 7-7 7" />
-                        </svg>
-                      </div>
-                    </button>
-                  ))}
-                </div>
+          {/* Topic Filter */}
+          <TopicFilter
+            selectedTopic={selectedTopic}
+            onSelect={setSelectedTopic}
+            counts={topicCounts}
+          />
+        </div>
+      </section>
+
+      {/* History List */}
+      <section className="px-4 py-8">
+        <div className="max-w-4xl mx-auto">
+          {totalCount > 0 ? (
+            <>
+              <div className="mb-6 text-sm text-white/40">
+                共 {totalCount} 条对话
               </div>
-            ))
+              
+              {filteredAndGrouped.map((group) => (
+                <DateSection
+                  key={group.dateKey}
+                  group={group}
+                  onDelete={handleDelete}
+                  isExpanded={expandedGroups.has(group.dateKey)}
+                />
+              ))}
+            </>
           ) : (
-            Object.entries(groupedByTopic).map(([topic, topicSessions]) => (
-              <div key={topic}>
-                <h2 className="text-xs uppercase tracking-widest opacity-50 mb-6 flex items-center gap-2" style={{ letterSpacing: '0.96px' }}>
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
-                  </svg>
-                  {topic}
-                </h2>
-                <div className="space-y-3">
-                  {topicSessions.map((session) => (
-                    <button
-                      key={session.id}
-                      onClick={() => {
-                        setSelectedSession(session);
-                        setViewMode('detail');
-                      }}
-                      className="w-full text-left p-6 border border-white/10 rounded-2xl hover:bg-white/5 hover:border-white/20 transition-all group"
-                    >
-                      <div className="flex items-start gap-4">
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm opacity-50 mb-2">{session.dateLabel}</p>
-                          <div className="flex items-center gap-6 text-sm opacity-50">
-                            <span className="flex items-center gap-2">
-                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-                              </svg>
-                              {session.messageCount} 条消息
-                            </span>
-                            <span className="flex items-center gap-2">
-                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                              </svg>
-                              {formatTime(session.messages[session.messages.length - 1].timestamp)}
-                            </span>
-                          </div>
-                        </div>
-                        <svg className="w-5 h-5 opacity-30 group-hover:opacity-80 transition-opacity flex-shrink-0 mt-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5l7 7-7 7" />
-                        </svg>
-                      </div>
-                    </button>
-                  ))}
-                </div>
+            <div className="text-center py-16">
+              <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-white/5 flex items-center justify-center">
+                <svg className="w-8 h-8 text-white/30" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                </svg>
               </div>
-            ))
+              <h3 className="text-xl font-bold mb-2">暂无记录</h3>
+              <p className="text-white/50 text-sm mb-6">
+                {searchQuery ? '没有找到匹配的对话' : '您的对话历史将显示在这里'}
+              </p>
+              {searchQuery ? (
+                <button
+                  onClick={() => setSearchQuery('')}
+                  className="inline-flex items-center gap-2 px-6 py-3 bg-white/10 text-white font-medium text-sm rounded-full hover:bg-white/20 transition-colors"
+                >
+                  清除搜索
+                </button>
+              ) : (
+                <Link
+                  href="/ai"
+                  className="inline-flex items-center gap-2 px-6 py-3 bg-white text-black font-bold text-sm rounded-full hover:bg-white/90 transition-colors"
+                >
+                  开始对话
+                </Link>
+              )}
+            </div>
           )}
         </div>
-      </main>
+      </section>
+
+      <Footer />
+
+      <style jsx global>{`
+        body { background: #000; }
+        .line-clamp-1 {
+          display: -webkit-box;
+          -webkit-line-clamp: 1;
+          -webkit-box-orient: vertical;
+          overflow: hidden;
+        }
+        .line-clamp-2 {
+          display: -webkit-box;
+          -webkit-line-clamp: 2;
+          -webkit-box-orient: vertical;
+          overflow: hidden;
+        }
+      `}</style>
     </div>
   );
 }
