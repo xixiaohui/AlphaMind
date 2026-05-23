@@ -14,8 +14,9 @@ export async function POST(request: NextRequest) {
     const ai: any = cloudbase.ai();
 
     const res: any = await ai.bot.sendMessage({
-      botId: 'agent-zhibandeep-0fbxz4uca513811',
-      threadId: '550e8400-e29b-41d4-a716-446655440000',
+      // botId: 'agent-zhibandeep-0fbxz4uca513811',
+      botId: process.env.BOT_ID || 'agent-zhibandeep-0fbxz4uca513811',
+      threadId: '550e8400-e29b-41d4-a716-446655440010',
       messages: [
         {
           id: 'msg_001',
