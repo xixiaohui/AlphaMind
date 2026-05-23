@@ -129,7 +129,7 @@ function SearchPageContent() {
         <div className="max-w-4xl mx-auto">
           {query && (
             <div className="text-sm text-white/50 mb-6">
-              搜索 "{query}"，找到 {filteredResults.length} 个结果
+              搜索 &ldquo;{query}&rdquo;，找到 {filteredResults.length} 个结果
             </div>
           )}
 

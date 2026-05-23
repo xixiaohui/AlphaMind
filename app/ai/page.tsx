@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Header from '../components/Header';
 import Footer from '../components/Footer';
@@ -169,6 +169,18 @@ function TypingIndicator() {
 }
 
 export default function AIPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-black flex items-center justify-center">
+        <div className="w-10 h-10 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+      </div>
+    }>
+      <AIChatContent />
+    </Suspense>
+  );
+}
+
+function AIChatContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -367,7 +379,7 @@ export default function AIPage() {
                 } else if (data.error) {
                   throw new Error(data.error);
                 }
-              } catch (e) {
+              } catch {
                 // 忽略 JSON 解析错误，继续处理下一行
               }
             }
@@ -385,12 +397,13 @@ export default function AIPage() {
       // 保存最终消息
       saveMessage([...updatedMessages, { ...aiMessage, content: fullContent, isStreaming: false }]);
 
-    } catch (err: any) {
-      console.error('API 调用失败:', err);
-      setError(err.message || '请求失败，请重试');
+    } catch (err: unknown) {
+      const e = err as Error;
+      console.error('API 调用失败:', e);
+      setError(e.message || '请求失败，请重试');
       
       // 更新 AI 消息为错误提示
-      const errorContent = `抱歉，发生了错误：${err.message || '未知错误'}\n\n请稍后重试。`;
+      const errorContent = `抱歉，发生了错误：${e.message || '未知错误'}\n\n请稍后重试。`;
       setMessages(prev => prev.map(msg => 
         msg.id === aiMessageId 
           ? { ...msg, content: errorContent, isStreaming: false }

@@ -17,7 +17,7 @@ export default function SettingsPage() {
     setIsLoaded(true);
   }, []);
 
-  const handleChange = (key: string, value: any) => {
+  const handleChange = (key: string, value: string | number | boolean) => {
     setSettings({ ...settings, [key]: value });
   };
 
