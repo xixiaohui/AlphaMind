@@ -11,6 +11,7 @@
   "dependencies": {
     "@cloudbase/ai": "^3.3.10",
     "@cloudbase/node-sdk": "^3.18.1",
+    "@langchain/langgraph-sdk": "^1.9.6",
     "axios": "^1.16.1",
     "dotenv": "^17.4.2",
     "next": "^15.5.6",
