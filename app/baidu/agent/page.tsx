@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect, useCallback } from 'react';
+import MarkdownRenderer from '../../components/MarkdownRenderer';
 
 // ============== 类型 ==============
 
@@ -204,15 +205,19 @@ export default function AgentChatPage() {
                   }`}
                   style={{ boxShadow: '0 1px 0.5px rgba(0,0,0,0.13)' }}
                 >
-                  {m.content || (
-                    isPending
-                      ? <span className="inline-flex items-center gap-1">
-                          <span className="w-1.5 h-1.5 rounded-full bg-white/30 animate-bounce [animation-delay:0s]" />
-                          <span className="w-1.5 h-1.5 rounded-full bg-white/30 animate-bounce [animation-delay:0.15s]" />
-                          <span className="w-1.5 h-1.5 rounded-full bg-white/30 animate-bounce [animation-delay:0.3s]" />
-                        </span>
-                      : ''
-                  )}
+                  {isPending ? (
+                    <span className="inline-flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-white/30 animate-bounce [animation-delay:0s]" />
+                      <span className="w-1.5 h-1.5 rounded-full bg-white/30 animate-bounce [animation-delay:0.15s]" />
+                      <span className="w-1.5 h-1.5 rounded-full bg-white/30 animate-bounce [animation-delay:0.3s]" />
+                    </span>
+                  ) : m.content ? (
+                    isUser ? (
+                      <span className="whitespace-pre-wrap">{m.content}</span>
+                    ) : (
+                      <MarkdownRenderer content={m.content} />
+                    )
+                  ) : null}
                   {/* 时间戳 */}
                   <span className="inline-block align-bottom text-[11px] text-white/35 ml-2 float-right mt-1.5">
                     {timeStr}
